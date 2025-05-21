@@ -5,4 +5,4 @@
 
 # 3. Un-ignore specific Python files you want to track.
 #    If they are in the root directory:
-!*.py
+!day1\tsne_practice\*.py
