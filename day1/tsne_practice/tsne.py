@@ -2,17 +2,21 @@ import matplotlib.pyplot as plt
 import torch
 import numpy as np
 from adjustbeta import adjustbeta
+import tqdm
+import warnings
 def compute_pairwise_dist(X):
     """
     Calculates pairwise squared Euclidean distances for an input tensor.
     
     we caculate the dist_sq[i, j] = ||x_i - x_j||^2
+    
     Parameters
     ----------
     X_tensor : torch.Tensor
         Input data tensor of shape (n_samples, n_features).
 
-    Returns:
+    Returns
+    ----------
         torch.Tensor
         Pairwise squared Euclidean distances, shape (n_samples, n_samples).
     
@@ -44,26 +48,34 @@ def compute_pairwise_dist(X):
 def compute_pairwise_affinity(dist_sq, betas):
     """
     Computes conditional (P_j|i) and joint (P_ij) pairwise affinities.
-    P_ij is normalized to sum to 1 over all pairs.
 
-    Args:
-        dist_sq (torch.Tensor): Input squared distance matrix of shape (n_samples, n_samples).
-        betas (torch.Tensor): A 1D tensor of shape (n_samples,) containing
-                                  the beta_i =1/(2* sigma_i^2) for each data point x_i.
-                                  betas[i] corresponds to the inverse of the variance for point i.
+    Parameters
+    ----------
+    dist_sq : torch.Tensor
+        Input squared distance matrix of shape (n_samples, n_samples).
+    betas : torch.Tensor
+        A 1D tensor of shape (n_samples,) containing
+        the beta_i =1/(2* sigma_i^2) for each data point x_i.
+        betas[i] corresponds to the inverse of the variance for point i.
 
-    Returns:
-        tuple[torch.Tensor, torch.Tensor]:
-            - P_conditional_ji (torch.Tensor): Tensor of shape (n_samples, n_samples) where
-                                               P_conditional_ji[i, j] corresponds to p_{j|i}.
-                                               Rows sum to 1 (approximately).
-            - P_joint (torch.Tensor): Symmetrized joint probabilities, tensor of shape
-                                      (n_samples, n_samples) where P_joint[i, j] is p_ij.
-                                      The entire matrix sums to 1.
+    Returns
+    -----------
+    torch.Tensor:
+        Symmetrized joint probabilities, tensor of shape
+        (n_samples, n_samples) where P_joint[i, j] is p_ij.
+    
+    Raises
+    ----------
+        ValueError: If the input tensor is not 2D.
+
+    Examples
+    ----------
+    >>> dist_sq = torch.tensor([[0.0, 1.0], [1.0, 0.0]])
+    >>> betas = torch.tensor([1.0, 1.0])
+    >>> compute_pairwise_affinity(dist_sq, betas)
+    tensor([[0.5000, 0.5000],
+            [0.5000, 0.5000]])
     """
-    # n_samples = X.shape[0]
-
-
     # (1) Compute P_conditional_ji ($p_{j|i}$)
     # Numerator: exp(-||x_i - x_j||^2 / 2 * sigma_i^2)
     # betas.unsqueeze(1) makes it a column vector for row-wise sigma_i
@@ -73,20 +85,19 @@ def compute_pairwise_affinity(dist_sq, betas):
 
     # Denominator: sum_{k != i} exp(-||x_i - x_k||^2 / 2 * sigma_i^2)
     denominator_p_ji = torch.sum(numerator_p_ji, dim=1, keepdim=True)
-    print("denominator_p_ji",denominator_p_ji.shape)
-
+    
     # P_conditional_ji[i, j] = p_{j|i}
     P_conditional_ji = numerator_p_ji / denominator_p_ji
     # Handle cases where denominator might be zero (e.g., sigma_i is extremely small or point is isolated)
     P_conditional_ji = torch.nan_to_num(P_conditional_ji, nan=0.0, posinf=0.0, neginf=0.0)
-
+    # Ensure diagonal is zero
+    P_conditional_ji.fill_diagonal_(0)  
+    
+    # (2) Compute P_joint ($p_{ij}$)
     P_joint_numerator = P_conditional_ji + P_conditional_ji.T
 
     # The denominator is the sum of all elements in P_joint_numerator
-    # (since diagonals are already zero for P_conditional_ji and P_conditional_ij)
     P_joint_denominator = torch.sum(P_joint_numerator)
-
-    # In t-SNE, this denominator typically simplifies to 2*n_samples.
     # If P_joint_denominator is zero (e.g. all affinities are zero), P_joint should be zero.
     if P_joint_denominator > 0:
         P_joint = P_joint_numerator / P_joint_denominator
@@ -96,7 +107,7 @@ def compute_pairwise_affinity(dist_sq, betas):
     # Ensure diagonal is zero for joint probabilities
     P_joint.fill_diagonal_(0)
 
-    return P_conditional_ji, P_joint
+    return P_joint
 
 def normalize_exaggerate_and_clip(P: torch.Tensor,
                                   min_clip: float = 1e-12,early_ex: float = 4.0
@@ -105,12 +116,27 @@ def normalize_exaggerate_and_clip(P: torch.Tensor,
     Normalizes the joint probabilities P_ij to ensure they sum to 1 (if not already),
     applies early exaggeration, and clips values to a minimum.
 
-    Args:
-        P(torch.Tensor): Probabilities tensor of shape (n_samples, n_samples).
-        min_clip (float): The minimum value to clip probabilities to.
+    Parameters
+    ----------
+    P : torch.Tensor
+        Probabilities tensor of shape (n_samples, n_samples).
+    min_clip : float
+        The minimum value to clip probabilities to.
 
-    Returns:
+    Returns
+    ----------
         torch.Tensor: Exaggerated and clipped joint probabilities tensor.
+
+    Raises
+    ----------
+        ValueError: If the input tensor is not 2D.
+
+    Examples
+    ----------
+    >>> P = torch.tensor([[0.1, 0.2], [0.3, 0.4]])
+    >>> normalize_exaggerate_and_clip(P)
+    tensor([[0.4000, 0.8000],
+        [1.2000, 1.6000]])
     """
     Psum = torch.sum(P)
     # Check if P_joint is all zeros, if so, the normalization would be NaN.
@@ -131,17 +157,18 @@ def compute_low_dim_affinity(dist_Y):
     """
     Computes the low-dimensional affinity matrix for t-SNE.
 
-    Args:
-        dist_Y (torch.Tensor): Pairwise squared Euclidean distances in low-dimensional space.
+    Parameters
+    ----------
+    dist_Y : torch.Tensor
+        Pairwise squared Euclidean distances in low-dimensional space.
 
     Returns:
         torch.Tensor: Low-dimensional affinities.
     """
     # Compute the low-dimensional affinities
-
     Q_numerator = 1.0/(1.0+dist_Y)
     Q_denominator = torch.sum(Q_numerator)
-    # Q_denominator.fill_diagonal_(0)  # Set diagonal to zero 
+
     # Normalize the low-dimensional affinities
     Q_normalized = Q_numerator / Q_denominator
     # Handle cases where Q might be NaN or Inf
@@ -149,13 +176,7 @@ def compute_low_dim_affinity(dist_Y):
     
     # # Ensure diagonal is zero for low-dimensional affinities
     Q.fill_diagonal_(0)
-    # print("Q",Q)
-    # Qsum = torch.sum(Q)
-    # if Qsum < 1e-9 :
-    #     Q_normalized = torch.zeros_like(Q)
-    # else:
-    #     Q_normalized = Q / Qsum
-    # print("Q_normalized",Q_normalized)
+    # Clip the low-dimensional affinities to avoid numerical issues
     Q = torch.clamp(Q, min=1e-12)
     return Q
 def compute_kl_divergence(P, Q):
@@ -167,7 +188,7 @@ def compute_kl_divergence(P, Q):
         Q (torch.Tensor): Low-dimensional affinities tensor of shape (n_samples, n_samples).
 
     Returns:
-        torch.Tensor: Kullback-Leibler divergence.
+        torch.Tensor: KL divergence.
     """
     # Compute KL divergence
     kl_div = torch.sum(P * torch.log(P / Q), dim=1)
@@ -186,55 +207,186 @@ def compute_gradient_loss_fucntion(P,Q,Y):
     """
     # Compute pairwise squared distances in low-dimensional space
     dist_y = compute_pairwise_dist(Y) # (n_samples, n_samples)
-    print(dist_y.shape)
     # compute the kernel
     k = 1.0/(1.0+dist_y) 
-    print(k.shape)
     # compute the pairwise difference
     pdiff = P - Q
-    print(pdiff.shape)
-    print(Y.shape)
     # compute the difference of y
     diff_y = Y.unsqueeze(1) - Y.unsqueeze(0)
-    print(diff_y.shape)
     # Compute the gradient of the loss function
     dY = torch.einsum('ij,ijk,ij->ik', pdiff, diff_y, k) 
 
     return dY
 
-def tsne(X, low_dims =2, perplexity=30.0, initial_p=0.5, final_p=0.8, eta=500, min_gain=0.01, T =1000):
+import torch
+import warnings
+
+def get_pytorch_device(device_preference: str | None = None, verbose: bool = True) -> torch.device:
+    """
+    Determines and returns the appropriate torch.device based on availability
+    and user preference.
+
+    Parameters
+    ----------
+    device_preference : str or None, optional
+        User's device preference (e.g., "cuda", "cuda:0", "cuda:1", "cpu", "mps").
+        If None, attempts to use the first available CUDA device ('cuda:0'),
+        otherwise falls back to CPU. Default is None.
+    verbose : bool, optional
+        If True, prints information about the device selection and warnings.
+        Default is True.
+
+    Returns
+    -------
+    torch.device
+        The selected (and validated) PyTorch device object.
+
+    Raises
+    ------
+    ValueError
+        If the device preference is invalid and cannot be resolved.
+    RuntimeError
+        If the device preference string is malformed or cannot be parsed.
+
+    Examples
+    --------
+    >>> device = get_pytorch_device() # Auto-detect
+    >>> device = get_pytorch_device("cuda:0")
+    """
+    final_device_obj = None
+
+    # 1. Handle user's explicit device preference
+    if device_preference is not None:
+        try:
+            potential_device = torch.device(device_preference)
+
+            if potential_device.type == 'cuda':
+                if not torch.cuda.is_available():
+                    if verbose:
+                        warnings.warn(
+                            f"CUDA preference '{device_preference}' ignored as CUDA is not available. "
+                            "Falling back to CPU."
+                        )
+                    final_device_obj = torch.device("cpu")
+                else:
+                    # CUDA is available. Validate the specific CUDA device.
+                    if potential_device.index is not None:  # e.g., 'cuda:0', 'cuda:1'
+                        if potential_device.index >= torch.cuda.device_count():
+                            if verbose:
+                                warnings.warn(
+                                    f"CUDA device index {potential_device.index} in '{device_preference}' is invalid "
+                                    f"(found {torch.cuda.device_count()} CUDA devices). "
+                                    f"Falling back to default CUDA device 'cuda:0'."
+                                )
+                            final_device_obj = torch.device("cuda:0")  # Fallback to the first GPU
+                        else:
+                            final_device_obj = potential_device  # Valid specific CUDA device
+                    else:  # User specified 'cuda' (general)
+                        final_device_obj = torch.device("cuda")  # Use default/current CUDA device
+            
+            else:  # User specified a non-CUDA device (e.g., "cpu", "mps")
+                final_device_obj = potential_device
+        
+        except RuntimeError as e:  # Caused by invalid device_preference string like "foo"
+            if verbose:
+                warnings.warn(
+                    f"Invalid device_preference string '{device_preference}': {e}. "
+                    "Autodetecting device instead."
+                )
+            # Let final_device_obj remain None to trigger autodetection below
+
+    # 2. Autodetect if no valid preference was given or processed
+    if final_device_obj is None:
+        if torch.cuda.is_available():
+            final_device_obj = torch.device("cuda:0")  # Default to first CUDA device
+            if verbose and device_preference is None: # Only print if it was pure auto-detection
+                 print(f"CUDA is available. Defaulting to {torch.cuda.get_device_name(0)} ({str(final_device_obj)}).")
+        else:
+            final_device_obj = torch.device("cpu")
+            if verbose and device_preference is None: # Only warn if they truly didn't specify and are getting CPU
+                 warnings.warn("CUDA is not available. Using CPU. This may result in slower performance.")
+
+    # 3. Final confirmation print (if verbose)
+    if verbose:
+        device_name_str = ""
+        if final_device_obj.type == 'cuda':
+            try:
+                # For 'cuda' without index, get current_device; else, use specified index
+                idx = final_device_obj.index if final_device_obj.index is not None else torch.cuda.current_device()
+                device_name_str = f" ({torch.cuda.get_device_name(idx)})"
+            except Exception: # Should be rare if logic above is correct
+                device_name_str = " (Could not fetch GPU name)"
+        
+        # Avoid printing if it was already covered by specific warnings/prints for fallbacks
+        # This condition ensures it prints if the device was chosen without verbose fallbacks
+        if not (device_preference is not None and final_device_obj.type == 'cpu' and 'Falling back to CPU' in [w.message.args[0] for w in warnings.catch_warnings(record=True)]): # Crude check
+             print(f"Selected device: {str(final_device_obj)}{device_name_str}")
+             
+    return final_device_obj
+
+
+def tsne(X, low_dims = 2, perplexity = 30.0, initial_p = 0.5, final_p = 0.8, eta = 500, min_gain = 0.01, T = 1000):
     """
     Computes t-SNE embedding for the input data.
-    Args:
-        X (numpy.narray): Input data tensor of shape (n_samples, n_features).
-        low_dims (int): Number of dimensions for the output embedding.
-        perplexity (float): Perplexity parameter for t-SNE.
-        initial_p (float): Initial momentum.
-        final_p (float): Final momentum.
-        eta (float): Learning rate.
-        min_gain (float): Minimum gain for gradient updates.
-        T (int): Number of iterations.
+    
+    Parameters
+    ----------
+        X : numpy.narray
+            Input data tensor of shape (n_samples, n_features).
+        low_dims : int
+            Number of dimensions for the output embedding.
+        perplexity : float
+            Perplexity parameter for t-SNE.
+        initial_p : float
+            Initial momentum.
+        final_p : float
+            Final momentum.
+        eta : float
+            Learning rate.
+        min_gain : float
+            Minimum gain for gradient updates.
+        T : int 
+            Number of iterations.
+    Returns
+    -------
+        torch.Tensor
+            Low-dimensional representation of the input data.
+
+    Examples
+    --------
+        >>> X = np.random.rand(100, 50)  # Example data
+        >>> Y = tsne(X, low_dims=2, perplexity=30.0)
+        >>> print(Y.shape)  # Should be (100, 2)
     """
+    # tolerance for the beta adjustment
     tol = 1e-5
-    early_ex = 4
+    # get the initial beta
     _, betas = adjustbeta(X, tol, perplexity)
-    print(betas)
-    betas = torch.from_numpy(betas).float().to("cuda:0")
-    X = torch.from_numpy(X).float().to("cuda:0")
+
+    # Check if CUDA is available
+    target_device = get_pytorch_device()
+
+    # change betas into tensor and Move the data to GPU if available
+    betas = torch.from_numpy(betas).float().to(target_device)
+    X = torch.from_numpy(X).float().to(target_device)
+
     # Compute pairwise squared distances
     dist_X = compute_pairwise_dist(X)
     # Compute pairwise affinities
-    P_ji, P_joint = compute_pairwise_affinity(dist_X, betas)
-    # Normalize and exaggerate P_joint
+    P_joint = compute_pairwise_affinity(dist_X, betas)
+    # Normalize, exaggerate and clip P_joint
+    # early exaggeration
+    early_ex = 4.0
     P_joint = normalize_exaggerate_and_clip(P_joint,early_ex=early_ex)
 
-    # Initialize low-dimensional representation
-    Y = torch.from_numpy(pca(X.cpu().numpy(), low_dims = low_dims)).to("cuda:0")
+    # Initialize low-dimensional representation Y and more to GPU
+    Y = torch.from_numpy(pca(X.cpu().numpy(), low_dims = low_dims)).to(target_device)
+    # Initialize delta_Y and gain
     delta_Y = torch.zeros_like(Y)
     gain = torch.ones_like(Y)
-    print("P_joint",P_joint)
-    print("Y",Y)
-    for t in range(1):
+    # 
+    kl_div = torch.zeros(T//10,device=target_device)
+    for t in tqdm.tqdm(range(T)):
         # Compute pairwise squared distances in low-dimensional space
         dist_Y = compute_pairwise_dist(Y)
         # Compute low-dimensional affinities
@@ -243,6 +395,7 @@ def tsne(X, low_dims =2, perplexity=30.0, initial_p=0.5, final_p=0.8, eta=500, m
         Q = torch.clamp(Q, min=1e-12)
         # Compute gradient of the loss function
         dY = compute_gradient_loss_fucntion(P_joint, Q, Y)
+        # set the momentum
         if t < 20:
             momentum = initial_p
         else:
@@ -256,13 +409,21 @@ def tsne(X, low_dims =2, perplexity=30.0, initial_p=0.5, final_p=0.8, eta=500, m
         # Update delta_Y based on the momentum and gain
         delta_Y = momentum * delta_Y - eta * gain * dY
         Y += delta_Y
+        # get rid of the early exaggeration
         if t == 100:
             P_joint = P_joint / early_ex
-    print("Q",Q)
-    print("dY",dY)
-    
-
-    return Y
+            # clip the P_joint
+            P_joint = torch.clamp(P_joint, min=1e-12)
+        
+        # compute kl divergence every 10 iterations
+        if t % 10 == 0:
+            kl_div_current = compute_kl_divergence(P_joint, Q)
+            kl_div[t // 10] = kl_div_current.mean()
+            
+            
+    # print("Q",Q)
+    # print("dY",dY)
+    return Y,kl_div
 
 def pca(X, low_dims=50):
     """
@@ -291,12 +452,12 @@ def pca(X, low_dims=50):
 if __name__ == "__main__":
     print("Run Y = tsne(X, low_dims, perplexity) to perform t-SNE on your dataset.")
     print("Running example on 2,500 MNIST digits...")
-    X = np.loadtxt('mnist2500_X.txt')
+    X = np.loadtxt('day1/tsne_practice/mnist2500_X.txt')
     print("X shape:", X.shape)
     X = pca(X, 50)
-    labels = np.loadtxt('mnist2500_labels.txt')
+    labels = np.loadtxt('day1/tsne_practice/mnist2500_labels.txt')
     print("labels shape:", labels.shape)
-    Y = tsne(X , perplexity=30.0, eta=500)
+    Y = tsne(X , perplexity=60.0, eta=1000)
     Y = Y.cpu().numpy()
-    plt.scatter(Y[:, 0], Y[:, 1], 20, labels)
-    plt.savefig("mnist_tsne.png")
+    plt.scatter(Y[:, 0], Y[:, 1], 20, Str(int(labels)))
+    plt.savefig("mnist_tsne3.png")
