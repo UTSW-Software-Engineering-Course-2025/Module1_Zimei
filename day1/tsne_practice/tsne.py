@@ -1,3 +1,5 @@
+
+
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
@@ -12,12 +14,12 @@ def compute_pairwise_dist(X):
     
     Parameters
     ----------
-    X_tensor : torch.Tensor
+    X : torch.Tensor
         Input data tensor of shape (n_samples, n_features).
 
     Returns
     ----------
-        torch.Tensor
+    dist_sq : torch.Tensor
         Pairwise squared Euclidean distances, shape (n_samples, n_samples).
     
     Raises
@@ -60,7 +62,7 @@ def compute_pairwise_affinity(dist_sq, betas):
 
     Returns
     -----------
-    torch.Tensor:
+    P_joint : torch.Tensor
         Symmetrized joint probabilities, tensor of shape
         (n_samples, n_samples) where P_joint[i, j] is p_ij.
     
@@ -110,7 +112,8 @@ def compute_pairwise_affinity(dist_sq, betas):
     return P_joint
 
 def normalize_exaggerate_and_clip(P: torch.Tensor,
-                                  min_clip: float = 1e-12,early_ex: float = 4.0
+                                  min_clip: float = 1e-12,
+                                  early_ex: float = 4.0
                                     ) -> torch.Tensor:
     """
     Normalizes the joint probabilities P_ij to ensure they sum to 1 (if not already),
@@ -122,10 +125,13 @@ def normalize_exaggerate_and_clip(P: torch.Tensor,
         Probabilities tensor of shape (n_samples, n_samples).
     min_clip : float
         The minimum value to clip probabilities to.
+    early_ex : float
+        Early exaggeration factor to amplify the joint probabilities.
 
     Returns
     ----------
-        torch.Tensor: Exaggerated and clipped joint probabilities tensor.
+    P_clipped : torch.Tensor
+        Normed, Exaggerated and clipped joint probabilities tensor.
 
     Raises
     ----------
@@ -163,7 +169,16 @@ def compute_low_dim_affinity(dist_Y):
         Pairwise squared Euclidean distances in low-dimensional space.
 
     Returns:
-        torch.Tensor: Low-dimensional affinities.
+    ----------
+    dist_Y : torch.Tensor
+        Low-dimensional affinities.
+    
+    Examples:
+    ----------
+    >>> dist_Y = torch.tensor([[0.0, 1.0], [1.0, 0.0]])
+    >>> compute_low_dim_affinity(dist_Y)
+    tensor([[1.0000e-12, 1.6667e-01],
+            [1.6667e-01, 1.0000e-12]])
     """
     # Compute the low-dimensional affinities
     Q_numerator = 1.0/(1.0+dist_Y)
@@ -183,12 +198,17 @@ def compute_kl_divergence(P, Q):
     """
     Computes the Kullback-Leibler divergence between the high-dimensional and low-dimensional distributions.
 
-    Args:
-        P(torch.Tensor): Joint probabilities tensor of shape (n_samples, n_samples).
-        Q (torch.Tensor): Low-dimensional affinities tensor of shape (n_samples, n_samples).
+    Parameters
+    ----------
+    P: torch.Tensor
+        Joint probabilities tensor of shape (n_samples, n_samples).
+    Q: torch.Tensor
+        Low-dimensional affinities tensor of shape (n_samples, n_samples).
 
     Returns:
-        torch.Tensor: KL divergence.
+    -----------
+    kl_div : torch.Tensor
+        KL divergence.
     """
     # Compute KL divergence
     kl_div = torch.sum(P * torch.log(P / Q), dim=1)
@@ -198,12 +218,18 @@ def compute_gradient_loss_fucntion(P,Q,Y):
     """
     Computes the gradient of the loss function for t-SNE.
 
-    Args:
-        P(torch.Tensor): Joint probabilities tensor of shape (n_samples, n_samples).
-        Q (torch.Tensor): Low-dimensional affinities tensor of shape (n_samples, n_samples).
-        Y (torch.Tensor): Low-dimensional representation of the data.
+    Parameters
+    ----------
+    P: torch.Tensor
+        Joint probabilities tensor of shape (n_samples, n_samples).
+    Q : torch.Tensor
+        Low-dimensional affinities tensor of shape (n_samples, n_samples).
+    Y : torch.Tensor 
+        Low-dimensional representation of the data.
     Returns:
-        torch.Tensor: Gradient of the loss function.
+    ----------
+    dY : torch.Tensor
+        Gradient of the loss function.
     """
     # Compute pairwise squared distances in low-dimensional space
     dist_y = compute_pairwise_dist(Y) # (n_samples, n_samples)
@@ -217,9 +243,6 @@ def compute_gradient_loss_fucntion(P,Q,Y):
     dY = torch.einsum('ij,ijk,ij->ik', pdiff, diff_y, k) 
 
     return dY
-
-import torch
-import warnings
 
 def get_pytorch_device(device_preference: str | None = None, verbose: bool = True) -> torch.device:
     """
@@ -238,7 +261,7 @@ def get_pytorch_device(device_preference: str | None = None, verbose: bool = Tru
 
     Returns
     -------
-    torch.device
+    final_device_obj : torch.device
         The selected (and validated) PyTorch device object.
 
     Raises
@@ -331,26 +354,28 @@ def tsne(X, low_dims = 2, perplexity = 30.0, initial_p = 0.5, final_p = 0.8, eta
     
     Parameters
     ----------
-        X : numpy.narray
-            Input data tensor of shape (n_samples, n_features).
-        low_dims : int
-            Number of dimensions for the output embedding.
-        perplexity : float
-            Perplexity parameter for t-SNE.
-        initial_p : float
-            Initial momentum.
-        final_p : float
-            Final momentum.
-        eta : float
-            Learning rate.
-        min_gain : float
-            Minimum gain for gradient updates.
-        T : int 
-            Number of iterations.
+    X : numpy.narray
+        Input data tensor of shape (n_samples, n_features).
+    low_dims : int
+        Number of dimensions for the output embedding.
+    perplexity : float
+        Perplexity parameter for t-SNE.
+    initial_p : float
+        Initial momentum.
+    final_p : float
+        Final momentum.
+    eta : float
+        Learning rate.
+    min_gain : float
+        Minimum gain for gradient updates.
+    T : int 
+        Number of iterations.
     Returns
     -------
-        torch.Tensor
-            Low-dimensional representation of the input data.
+    Y : torch.Tensor
+        Low-dimensional representation of the input data.
+    kl_div : torch.Tensor
+        KL divergence values at each 10 iteration.
 
     Examples
     --------
@@ -457,7 +482,19 @@ if __name__ == "__main__":
     X = pca(X, 50)
     labels = np.loadtxt('day1/tsne_practice/mnist2500_labels.txt')
     print("labels shape:", labels.shape)
-    Y = tsne(X , perplexity=60.0, eta=1000)
+    T = 1000
+    Y, kl_div = tsne(X , perplexity = 30.0, eta = 500 , T = T)
     Y = Y.cpu().numpy()
-    plt.scatter(Y[:, 0], Y[:, 1], 20, Str(int(labels)))
+    kl_div = kl_div.cpu().numpy()
+    
+    plt.figure()
+    plt.scatter(Y[:, 0], Y[:, 1], 20, labels)
+    plt.title("t-SNE on MNIST digits")
     plt.savefig("mnist_tsne3.png")
+
+    plt.figure()
+    plt.plot(np.arange(0,T,10),kl_div)
+    plt.xlabel("Iteration")
+    plt.ylabel("KL Divergence")
+    plt.title("KL Divergence vs Iteration")
+    plt.savefig("mnist_kl_div.png")
