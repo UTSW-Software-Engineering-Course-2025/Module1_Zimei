@@ -21,6 +21,9 @@ This project provides Python implementations of two dimensionality reduction tec
 │   └── hochgerner_2018.data.gz # Data file
 └── README.md                   # This file
 
+```
+
+---
 
 
 ## File Descriptions
