@@ -142,6 +142,7 @@ def get_top_d_eigenvectors(M) :
 def graphdr(data, lambda_, no_rotation=False):
     """
     GraphDR implementation.
+
     Parameters
     ----------
     data : np.ndarray
@@ -150,6 +151,11 @@ def graphdr(data, lambda_, no_rotation=False):
         The regularization parameter.
     no_rotation : bool, optional
         If True, no rotation is applied to the data. Default is False.
+
+    Returns
+    -------
+    Z : np.ndarray
+        The transformed data matrix after applying GraphDR.
     """
     # Get Laplacian matrix
     knn_graph = kneighbors_graph(data, n_neighbors=10)

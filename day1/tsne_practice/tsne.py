@@ -16,10 +16,10 @@ from adjustbeta import adjustbeta
 import tqdm
 import warnings
 def compute_pairwise_dist(X):
-    """
+    r"""
     Calculates pairwise squared Euclidean distances for an input tensor.
     
-    we caculate the dist_sq[i, j] = ||x_i - x_j||^2
+    we caculate the dist_sq[i, j] = $||x_i - x_j||^2$
     
     Parameters
     ----------
@@ -29,7 +29,7 @@ def compute_pairwise_dist(X):
     Returns
     ----------
     dist_sq : torch.Tensor
-        Pairwise squared Euclidean distances, shape (n_samples, n_samples).
+            Pairwise squared Euclidean distances, shape (n_samples, n_samples).
     
     Raises
     ----------
@@ -37,11 +37,11 @@ def compute_pairwise_dist(X):
     
     Examples
     ----------
-    >>> X = torch.tensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
-    >>> compute_pairwise_dist(X)
-    tensor([[ 0.,  8., 32.],
-            [ 8.,  0.,  8.],
-            [32.,  8.,  0.]])
+        >>> X = torch.tensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+        >>> compute_pairwise_dist(X)
+        tensor([[ 0.,  8., 32.],
+                [ 8.,  0.,  8.],
+                [32.,  8.,  0.]])
 
     """
     if X.ndim != 2:
@@ -57,8 +57,8 @@ def compute_pairwise_dist(X):
 
 
 def compute_pairwise_affinity(dist_sq, betas):
-    """
-    Computes conditional (P_j|i) and joint (P_ij) pairwise affinities.
+    r"""
+    Computes conditional ($P_{j|i}$) and joint ($P_{ij}$) pairwise affinities.
 
     Parameters
     ----------
@@ -66,14 +66,14 @@ def compute_pairwise_affinity(dist_sq, betas):
         Input squared distance matrix of shape (n_samples, n_samples).
     betas : torch.Tensor
         A 1D tensor of shape (n_samples,) containing
-        the beta_i =1/(2* sigma_i^2) for each data point x_i.
+        the $beta_i =1/(2* \sigma_i^2)$ for each data point $x_i$.
         betas[i] corresponds to the inverse of the variance for point i.
 
     Returns
     -----------
     P_joint : torch.Tensor
         Symmetrized joint probabilities, tensor of shape
-        (n_samples, n_samples) where P_joint[i, j] is p_ij.
+        (n_samples, n_samples) where P_joint[i, j] is $p_{ij}$.
     
     Raises
     ----------
@@ -81,11 +81,11 @@ def compute_pairwise_affinity(dist_sq, betas):
 
     Examples
     ----------
-    >>> dist_sq = torch.tensor([[0.0, 1.0], [1.0, 0.0]])
-    >>> betas = torch.tensor([1.0, 1.0])
-    >>> compute_pairwise_affinity(dist_sq, betas)
-    tensor([[0.5000, 0.5000],
-            [0.5000, 0.5000]])
+        >>> dist_sq = torch.tensor([[0.0, 1.0], [1.0, 0.0]])
+        >>> betas = torch.tensor([1.0, 1.0])
+        >>> compute_pairwise_affinity(dist_sq, betas)
+        tensor([[0.5000, 0.5000],
+                [0.5000, 0.5000]])
     """
     # (1) Compute P_conditional_ji ($p_{j|i}$)
     # Numerator: exp(-||x_i - x_j||^2 / 2 * sigma_i^2)
@@ -125,7 +125,7 @@ def normalize_exaggerate_and_clip(P: torch.Tensor,
                                   early_ex: float = 4.0
                                     ) -> torch.Tensor:
     """
-    Normalizes the joint probabilities P_ij to ensure they sum to 1 (if not already),
+    Normalizes the joint probabilities P_{ij} to ensure they sum to 1 (if not already),
     applies early exaggeration, and clips values to a minimum.
 
     Parameters
@@ -169,25 +169,27 @@ def normalize_exaggerate_and_clip(P: torch.Tensor,
     return P_clipped
 
 def compute_low_dim_affinity(dist_Y):
-    """
+    r"""
     Computes the low-dimensional affinity matrix for t-SNE.
-
+    
+    The low-dimensional affinities are computed using the formula:
+    $Q_{ij} = \frac{(1 + ||y_i - y_j||^2)^{-1}}{\sum_j (1 + ||y_i - y_j||^2)^{-1}}$
     Parameters
     ----------
     dist_Y : torch.Tensor
         Pairwise squared Euclidean distances in low-dimensional space.
 
-    Returns:
+    Returns
     ----------
     dist_Y : torch.Tensor
         Low-dimensional affinities.
     
-    Examples:
+    Examples
     ----------
-    >>> dist_Y = torch.tensor([[0.0, 1.0], [1.0, 0.0]])
-    >>> compute_low_dim_affinity(dist_Y)
-    tensor([[1.0000e-12, 1.6667e-01],
-            [1.6667e-01, 1.0000e-12]])
+        >>> dist_Y = torch.tensor([[0.0, 1.0], [1.0, 0.0]])
+        >>> compute_low_dim_affinity(dist_Y)
+        tensor([[1.0000e-12, 1.6667e-01],
+                [1.6667e-01, 1.0000e-12]])
     """
     # Compute the low-dimensional affinities
     Q_numerator = 1.0/(1.0+dist_Y)
@@ -214,7 +216,7 @@ def compute_kl_divergence(P, Q):
     Q: torch.Tensor
         Low-dimensional affinities tensor of shape (n_samples, n_samples).
 
-    Returns:
+    Returns
     -----------
     kl_div : torch.Tensor
         KL divergence.
@@ -235,7 +237,8 @@ def compute_gradient_loss_fucntion(P,Q,Y):
         Low-dimensional affinities tensor of shape (n_samples, n_samples).
     Y : torch.Tensor 
         Low-dimensional representation of the data.
-    Returns:
+
+    Returns
     ----------
     dY : torch.Tensor
         Gradient of the loss function.
@@ -271,7 +274,7 @@ def get_pytorch_device(device_preference: str | None = None, verbose: bool = Tru
     Returns
     -------
     final_device_obj : torch.device
-        The selected (and validated) PyTorch device object.
+          The selected (and validated) PyTorch device object.
 
     Raises
     ------
@@ -282,8 +285,8 @@ def get_pytorch_device(device_preference: str | None = None, verbose: bool = Tru
 
     Examples
     --------
-    >>> device = get_pytorch_device() # Auto-detect
-    >>> device = get_pytorch_device("cuda:0")
+        >>> device = get_pytorch_device() # Auto-detect
+        >>> device = get_pytorch_device("cuda:0")
     """
     final_device_obj = None
 
@@ -379,6 +382,7 @@ def tsne(X, low_dims = 2, perplexity = 30.0, initial_p = 0.5, final_p = 0.8, eta
         Minimum gain for gradient updates.
     T : int 
         Number of iterations.
+        
     Returns
     -------
     Y : torch.Tensor
