@@ -1,5 +1,14 @@
+"""
+This module contains functions for computing pairwise distances, affinities, and gradients for t-SNE algorithm by pytorch
+We can automatically detect the device (CPU or GPU) and run the t-SNE algorithm on it.
+"""
 
-
+import matplotlib.pyplot as plt
+import torch
+import numpy as np
+from adjustbeta import adjustbeta
+import tqdm
+import warnings
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
