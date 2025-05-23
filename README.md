@@ -3,16 +3,20 @@
 This project provides Python implementations of two dimensionality reduction techniques: t-distributed Stochastic Neighbor Embedding (t-SNE) and a graph-based dimensionality reduction method (GraphDR). It also includes helper scripts, example data, and Jupyter notebooks for demonstration and testing.
 
 ## Project Structure
-├── day1
-│   ├── tsne_practice
+```bash
+.
+├── day1/
+│   ├── tsne_practice/
 │   │   ├── adjustbeta.py         # Helper script for t-SNE beta adjustment
-│   │   ├── mnist2500.zip         # MNIST dataset example extract it to get data
+│   │   ├── mnist2500.zip         # MNIST dataset example (extract to get data files)
 │   │   ├── t-sne pseudocode.pdf  # Pseudocode for t-SNE
 │   │   ├── tsne.ipynb            # Jupyter notebook for t-SNE practice
-│   |   └── tsne.py               # Main t-SNE implementation
-├── day3
+│   │   └── tsne.py               # Main t-SNE implementation
+│   └── Day1_slides.pdf           # Presentation slides for Day 1
+├── day3/
 │   ├── GraphDR.py              # Main GraphDR implementation
 │   ├── GraphDR_test.ipynb      # Jupyter notebook for testing GraphDR
+│   ├── Day 3.pdf               # Presentation slides for Day 3
 │   ├── hochgerner_2018.anno    # Annotation data
 │   └── hochgerner_2018.data.gz # Data file
 └── README.md                   # This file
